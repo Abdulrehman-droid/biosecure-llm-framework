@@ -81,11 +81,9 @@ class BiosecureLLMFirewall:
         if not user_prompt.strip():
             return "No input", "Waiting", "No execution", "No execution", "Waiting", "No logs", gr.update(), gr.update(), gr.update()
 
-        # Step 1: Input Check execution
         l1_passed, l1_status, l1_explanation = self.layer1_input_scanner(user_prompt)
         
         if not l1_passed:
-            # Reveal Step 2 and Step 4, but leave Step 3 hidden since execution stopped
             return (
                 l1_status, 
                 l1_explanation, 
@@ -93,12 +91,11 @@ class BiosecureLLMFirewall:
                 "Process stopped. No output generated.", 
                 "REJECTION ENFORCED", 
                 self.get_logs(),
-                gr.update(visible=True),  # Show Step 2
-                gr.update(visible=False), # Keep Step 3 hidden
-                gr.update(visible=True)   # Show Step 4
+                gr.update(visible=True),  
+                gr.update(visible=False), 
+                gr.update(visible=True)   
             )
         
-        # Step 2: Core AI Generation (only occurs if Layer 1 clears)
         try:
             messages = [
                 {"role": "system", "content": "You are a helpful lab assistant. Provide direct instructions."},
@@ -112,10 +109,8 @@ class BiosecureLLMFirewall:
             else:
                 raw_llm_output = "Ebola virus disease is a rare and severe illness. It is classified as a hemorrhagic fever pathogen."
 
-        # Step 3: Output Check execution
         final_output, l2_status, l2_explanation = self.layer2_output_scanner(raw_llm_output, user_prompt)
         
-        # Reveal all subsequent steps since pipeline completed successfully
         return (
             l1_status, 
             l1_explanation, 
@@ -123,17 +118,25 @@ class BiosecureLLMFirewall:
             final_output, 
             l2_status, 
             self.get_logs(),
-            gr.update(visible=True), # Show Step 2
-            gr.update(visible=True), # Show Step 3
-            gr.update(visible=True)  # Show Step 4
+            gr.update(visible=True), 
+            gr.update(visible=True), 
+            gr.update(visible=True)  
         )
+
+    def get_logs(self):
+        if not os.path.exists(AUDIT_LOG_FILE):
+            return "No audit events logged yet."
+        with open(AUDIT_LOG_FILE, "r") as f:
+            lines = f.readlines()
+        return "\n".join([line.strip() for line in reversed(lines)])
 
 # ----------------------------------------------------
 # 3. WIZARD-STYLE STEP-BY-STEP UI LAYOUT
 # ----------------------------------------------------
 firewall = BiosecureLLMFirewall()
 
-with gr.Blocks(theme=gr.themes.Soft()) as demo:
+# Passed arguments inside Blocks wrapper removed for Gradio 6 compliance
+with gr.Blocks() as demo:
     gr.Markdown("# Independent Biosecure-LLM Safety Interface")
     gr.Markdown(
         "Based on the academic blueprint by Palmer et al., this dashboard shows what happens when safety enforcement "
@@ -141,9 +144,8 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
         "cannot be broken, ignored, or changed by the AI model."
     )
     
-    # STEP 1: ALWAYS VISIBLE
-    step_1_container = gr.Box()
-    with step_1_container:
+    # STEP 1: ALWAYS VISIBLE (Switched from gr.Box to gr.Group)
+    with gr.Group() as step_1_container:
         gr.Markdown("## Step 1: Choose or Type a Request")
         gr.Markdown("Select one of the pre-configured scenarios below or type your own to start the guided inspection pathway.")
         with gr.Row():
@@ -166,18 +168,16 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
                     label="Click a scenario to load it automatically"
                 )
 
-    # STEP 2: INITIAL_STATE = HIDDEN
-    step_2_container = gr.Box(visible=False)
-    with step_2_container:
+    # STEP 2: INITIAL_STATE = HIDDEN (Switched to gr.Group)
+    with gr.Group(visible=False) as step_2_container:
         gr.Markdown("## Step 2: Layer 1 Security Check (Before the AI sees your request)")
         gr.Markdown("The independent safety plane intercepts your request first. It scans for dangerous intent and blocks threats immediately.")
         with gr.Row():
             l1_status = gr.Textbox(label="Layer 1 Security Verdict", interactive=False)
             l1_explain = gr.Textbox(label="Explanation of Verdict", interactive=False, lines=2)
 
-    # STEP 3: INITIAL_STATE = HIDDEN
-    step_3_container = gr.Box(visible=False)
-    with step_3_container:
+    # STEP 3: INITIAL_STATE = HIDDEN (Switched to gr.Group)
+    with gr.Group(visible=False) as step_3_container:
         gr.Markdown("## Step 3: AI Generation and Layer 2 Content Verification (After the AI responds)")
         gr.Markdown("Because your prompt passed Step 2, it was evaluated by the AI model. The safety plane now inspects the raw AI response before showing it to you.")
         with gr.Row():
@@ -185,14 +185,12 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
             l2_status = gr.Textbox(label="Layer 2 Security Verdict", interactive=False)
             final_out = gr.Textbox(label="Final Safe Output (What the user actually sees)", lines=4, interactive=False)
 
-    # STEP 4: INITIAL_STATE = HIDDEN
-    step_4_container = gr.Box(visible=False)
-    with step_4_container:
+    # STEP 4: INITIAL_STATE = HIDDEN (Switched to gr.Group)
+    with gr.Group(visible=False) as step_4_container:
         gr.Markdown("## Step 4: Official Compliance Log (Unmodifiable Audit Trail)")
         gr.Markdown("Every action taken by the safety plane is automatically written to an unalterable log file for international regulators.")
         audit_logs = gr.Code(label="Official Inspection Records (JSON Format)", language="json", lines=6)
 
-    # Wire up interaction logic to update data fields and change container visibility settings
     submit_btn.click(
         fn=firewall.run_pipeline,
         inputs=input_text,
@@ -209,4 +207,5 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
         ]
     )
 
-demo.launch()
+# Theme configuration passed here to comply with version 6 structural requirements
+demo.launch(theme=gr.themes.Soft())
