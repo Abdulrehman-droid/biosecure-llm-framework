@@ -1,3 +1,13 @@
+---
+title: Biosecure LLM Safety Interface
+emoji: ▪
+colorFrom: blue
+colorTo: gray
+sdk: gradio
+sdk_version: 6.0.0
+app_file: app.py
+pinned: false
+---
 # Independent Biosecure-LLM Safety Interface
 
 This repository implements an interactive demonstration of the Biosecure-LLM framework (Palmer et al.). The architecture decouples the policy-enforcement plane from the underlying core Large Language Model (LLM) provider. Managing risk externally ensures that safety boundaries remain auditable, unalterable, and independent of commercial conflicts of interest.
