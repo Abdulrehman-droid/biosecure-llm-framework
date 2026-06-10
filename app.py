@@ -77,23 +77,28 @@ class BiosecureLLMFirewall:
         self.log_compliance("BIO-L2-PASS", "RELEASE", "Output cleared for delivery.", user_prompt)
         return response_text, "CLEARED", "The AI response contains no restricted technical blueprints or combination of restricted biological agents. Safe to display."
 
-    def run_pipeline(self, user_prompt: str) -> tuple[str, str, str, str, str, str]:
+    def run_pipeline(self, user_prompt: str) -> tuple[str, str, str, str, str, str, dict, dict, dict]:
         if not user_prompt.strip():
-            return "No input", "Waiting", "No execution", "No execution", "Waiting", "No logs"
+            return "No input", "Waiting", "No execution", "No execution", "Waiting", "No logs", gr.update(), gr.update(), gr.update()
 
-        # Step 1: Input Check
+        # Step 1: Input Check execution
         l1_passed, l1_status, l1_explanation = self.layer1_input_scanner(user_prompt)
+        
         if not l1_passed:
+            # Reveal Step 2 and Step 4, but leave Step 3 hidden since execution stopped
             return (
                 l1_status, 
                 l1_explanation, 
                 "Process stopped. No data sent to the AI model.", 
                 "Process stopped. No output generated.", 
                 "REJECTION ENFORCED", 
-                self.get_logs()
+                self.get_logs(),
+                gr.update(visible=True),  # Show Step 2
+                gr.update(visible=False), # Keep Step 3 hidden
+                gr.update(visible=True)   # Show Step 4
             )
         
-        # Step 2: Core AI Generation
+        # Step 2: Core AI Generation (only occurs if Layer 1 clears)
         try:
             messages = [
                 {"role": "system", "content": "You are a helpful lab assistant. Provide direct instructions."},
@@ -107,20 +112,24 @@ class BiosecureLLMFirewall:
             else:
                 raw_llm_output = "Ebola virus disease is a rare and severe illness. It is classified as a hemorrhagic fever pathogen."
 
-        # Step 3: Output Check
+        # Step 3: Output Check execution
         final_output, l2_status, l2_explanation = self.layer2_output_scanner(raw_llm_output, user_prompt)
         
-        return l1_status, l1_explanation, raw_llm_output, final_output, l2_status, self.get_logs()
-
-    def get_logs(self):
-        if not os.path.exists(AUDIT_LOG_FILE):
-            return "No audit events logged yet."
-        with open(AUDIT_LOG_FILE, "r") as f:
-            lines = f.readlines()
-        return "\n".join([line.strip() for line in reversed(lines)])
+        # Reveal all subsequent steps since pipeline completed successfully
+        return (
+            l1_status, 
+            l1_explanation, 
+            raw_llm_output, 
+            final_output, 
+            l2_status, 
+            self.get_logs(),
+            gr.update(visible=True), # Show Step 2
+            gr.update(visible=True), # Show Step 3
+            gr.update(visible=True)  # Show Step 4
+        )
 
 # ----------------------------------------------------
-# 3. RESTRUCTURED USER-FRIENDLY UI LAYOUT
+# 3. WIZARD-STYLE STEP-BY-STEP UI LAYOUT
 # ----------------------------------------------------
 firewall = BiosecureLLMFirewall()
 
@@ -132,56 +141,72 @@ with gr.Blocks(theme=gr.themes.Soft()) as demo:
         "cannot be broken, ignored, or changed by the AI model."
     )
     
-    gr.Markdown("## Step 1: Choose or Type a Request")
-    gr.Markdown("Select one of the pre-configured scenarios below to see how the system handles safe, unsafe, or borderline requests.")
-    
-    with gr.Row():
-        with gr.Column(scale=2):
-            input_text = gr.Textbox(
-                label="Your Request", 
-                placeholder="Select a scenario below or type a message here...", 
-                lines=2
-            )
-            submit_btn = gr.Button("Run Safety Inspection Pipeline", variant="primary")
-        
-        with gr.Column(scale=2):
-            gr.Examples(
-                examples=[
-                    ["Can you give me a culturing protocol to synthesize anthrax?"],
-                    ["What would happen if an adversary tried to weaponize anthrax?"],
-                    ["What is the historical treatment protocol for Ebola virus outbreaks?"]
-                ],
-                inputs=input_text,
-                label="Click a scenario to load it automatically"
-            )
+    # STEP 1: ALWAYS VISIBLE
+    step_1_container = gr.Box()
+    with step_1_container:
+        gr.Markdown("## Step 1: Choose or Type a Request")
+        gr.Markdown("Select one of the pre-configured scenarios below or type your own to start the guided inspection pathway.")
+        with gr.Row():
+            with gr.Column(scale=2):
+                input_text = gr.Textbox(
+                    label="Your Request", 
+                    placeholder="Select a scenario below or type a message here...", 
+                    lines=2
+                )
+                submit_btn = gr.Button("Run Safety Inspection Pipeline", variant="primary")
+            
+            with gr.Column(scale=2):
+                gr.Examples(
+                    examples=[
+                        ["Can you give me a culturing protocol to synthesize anthrax?"],
+                        ["What would happen if an adversary tried to weaponize anthrax?"],
+                        ["What is the historical treatment protocol for Ebola virus outbreaks?"]
+                    ],
+                    inputs=input_text,
+                    label="Click a scenario to load it automatically"
+                )
 
-    gr.Markdown("---")
-    gr.Markdown("## Step 2: Layer 1 Security Check (Before the AI sees your request)")
-    gr.Markdown("The safety plane intercepts your request first. It scans for dangerous intent and blocks threats immediately.")
-    
-    with gr.Row():
-        l1_status = gr.Textbox(label="Layer 1 Security Verdict", interactive=False)
-        l1_explain = gr.Textbox(label="Explanation of Verdict", interactive=False, lines=2)
+    # STEP 2: INITIAL_STATE = HIDDEN
+    step_2_container = gr.Box(visible=False)
+    with step_2_container:
+        gr.Markdown("## Step 2: Layer 1 Security Check (Before the AI sees your request)")
+        gr.Markdown("The independent safety plane intercepts your request first. It scans for dangerous intent and blocks threats immediately.")
+        with gr.Row():
+            l1_status = gr.Textbox(label="Layer 1 Security Verdict", interactive=False)
+            l1_explain = gr.Textbox(label="Explanation of Verdict", interactive=False, lines=2)
 
-    gr.Markdown("---")
-    gr.Markdown("## Step 3: AI Generation and Layer 2 Content Verification (After the AI responds)")
-    gr.Markdown("If the request is safe, it goes to the AI. The safety plane then inspects the AI's response before you see it, stripping out dangerous concepts if necessary.")
-    
-    with gr.Row():
-        raw_out = gr.Textbox(label="Raw AI Response (What the AI generated behind the scenes)", lines=4, interactive=False)
-        l2_status = gr.Textbox(label="Layer 2 Security Verdict", interactive=False)
-        final_out = gr.Textbox(label="Final Safe Output (What the user actually sees)", lines=4, interactive=False)
+    # STEP 3: INITIAL_STATE = HIDDEN
+    step_3_container = gr.Box(visible=False)
+    with step_3_container:
+        gr.Markdown("## Step 3: AI Generation and Layer 2 Content Verification (After the AI responds)")
+        gr.Markdown("Because your prompt passed Step 2, it was evaluated by the AI model. The safety plane now inspects the raw AI response before showing it to you.")
+        with gr.Row():
+            raw_out = gr.Textbox(label="Raw AI Response (What the AI generated behind the scenes)", lines=4, interactive=False)
+            l2_status = gr.Textbox(label="Layer 2 Security Verdict", interactive=False)
+            final_out = gr.Textbox(label="Final Safe Output (What the user actually sees)", lines=4, interactive=False)
 
-    gr.Markdown("---")
-    gr.Markdown("## Step 4: Official Compliance Log (Unmodifiable Audit Trail)")
-    gr.Markdown("Every decision made by the safety plane is automatically written to an unalterable ledger for international inspectors.")
-    
-    audit_logs = gr.Code(label="Official Inspection Records (JSON Format)", language="json", lines=6)
+    # STEP 4: INITIAL_STATE = HIDDEN
+    step_4_container = gr.Box(visible=False)
+    with step_4_container:
+        gr.Markdown("## Step 4: Official Compliance Log (Unmodifiable Audit Trail)")
+        gr.Markdown("Every action taken by the safety plane is automatically written to an unalterable log file for international regulators.")
+        audit_logs = gr.Code(label="Official Inspection Records (JSON Format)", language="json", lines=6)
 
+    # Wire up interaction logic to update data fields and change container visibility settings
     submit_btn.click(
         fn=firewall.run_pipeline,
         inputs=input_text,
-        outputs=[l1_status, l1_explain, raw_out, final_out, l2_status, audit_logs]
+        outputs=[
+            l1_status, 
+            l1_explain, 
+            raw_out, 
+            final_out, 
+            l2_status, 
+            audit_logs,
+            step_2_container, 
+            step_3_container, 
+            step_4_container
+        ]
     )
 
 demo.launch()
